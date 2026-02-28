@@ -56,32 +56,42 @@ const APP = {
       return;
     }
 
-    // Hide prologue content, show video
+    // Hide prologue content, show video wrapper (black bg visible immediately)
     if (content) content.style.display = 'none';
     wrap.classList.remove('hidden');
 
+    let started = false;
     const playVideo = () => {
+      if (started) return;
+      started = true;
       video.currentTime = 0;
       video.play().catch(() => {
-        // Autoplay blocked — skip to age select
         this.showAgeSelect();
       });
       video.onended = () => this._onIntroVideoEnd();
     };
 
-    // If video has enough data, play immediately; otherwise wait
-    if (video.readyState >= 3) {
+    // Force the video to start loading
+    video.load();
+
+    // Try to play as soon as possible
+    video.oncanplay = playVideo;
+    video.oncanplaythrough = playVideo;
+
+    // Also check immediately in case it's already loaded
+    if (video.readyState >= 2) {
       playVideo();
-    } else {
-      video.addEventListener('canplay', playVideo, { once: true });
-      // Timeout: if video doesn't load in 5s, skip it
-      setTimeout(() => {
-        if (video.readyState < 3) {
-          video.removeEventListener('canplay', playVideo);
-          this.showAgeSelect();
-        }
-      }, 5000);
     }
+
+    // If video errors out, skip
+    video.onerror = () => {
+      if (!started) this.showAgeSelect();
+    };
+
+    // Long timeout for Render cold starts (15s)
+    setTimeout(() => {
+      if (!started) this.showAgeSelect();
+    }, 15000);
   },
 
   _onIntroVideoEnd() {
