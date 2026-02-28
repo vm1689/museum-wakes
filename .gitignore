@@ -13,8 +13,7 @@ Thumbs.db
 egypt-data/images/
 egypt-data/MetObjects_Egyptian.csv
 
-# Generated icons (regenerated on startup)
-museum-wakes/public/icons/
+# Generated icons are committed for Render deployment
 
 # Video (too large for git)
 intro-video.mp4
