@@ -322,7 +322,9 @@ const APP = {
     // Step 1: Capture photo
     const photo = await CAMERA.takePhoto();
     if (!photo) {
-      this._openDemoScanner();
+      // Camera unavailable or user cancelled — stay on gameplay screen
+      // (user can tap BROWSE separately if they want the catalog)
+      this._addSystemEntry('Camera not available. Use BROWSE to find artifacts by name.');
       return;
     }
 
