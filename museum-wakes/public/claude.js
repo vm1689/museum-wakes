@@ -720,6 +720,297 @@ End with: "The museum sleeps again — until the next visitor wakes it."
     return this.generate(system, prompt, { maxTokens: 500, temperature: 0.95 });
   },
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // PROMPT BUILDERS — return { system, prompt } without calling API
+  // Used by VOICE.generateAndSpeak() for native audio generation
+  // ══════════════════════════════════════════════════════════════════════════
+
+  buildPathIntroPrompt(pathId, register) {
+    const system = this.thothPrompt(register);
+    const intros = {
+      search: 'Introduce "The Search" path. Isis needs help finding the 14 scattered pieces of Osiris across the gallery. This is an adventure of discovery. The player will scan artifacts looking for the fragments. IMPORTANT: Keep your response under 200 characters total. 1-2 short sentences only.',
+      trial: 'Introduce "The Trial" path. The Contendings of Horus and Set have been reopened. The player has been summoned as the mortal judge. They will scan artifacts to collect evidence and hear both sides argue. IMPORTANT: Keep your response under 200 characters total. 1-2 short sentences only.',
+      letters: 'Introduce "The Letters" path. A scribe named Kha is trapped in the Duat. His letters are appearing on the player\'s phone. They must find his scattered possessions to free his soul. IMPORTANT: Keep your response under 200 characters total. 1-2 short sentences only.',
+      memory: 'Introduce "The Memory" path. Thoth is granting the player divine sight — the power to see artifacts as they were 3,000 years ago. Point the phone at any artifact to see through time. IMPORTANT: Keep your response under 200 characters total. 1-2 short sentences only.',
+      awakening: 'Introduce "The Awakening" path. Every artifact has a voice — gods, craftsmen, priests, children. Point the phone at any artifact and someone speaks. Build relationships. Discover connections. IMPORTANT: Keep your response under 200 characters total. 1-2 short sentences only.'
+    };
+    return { system, prompt: intros[pathId] || intros.search };
+  },
+
+  buildStoryBeatPrompt(pathId, artifact, register, promptContext) {
+    const {
+      actNumber, actDirective, guideState, beatHistory,
+      crisisReady, crisisRevelation, currentClue, temperature, maxTokens
+    } = promptContext;
+
+    const isTarget = artifact ? PATH_DATA.isTarget(artifact.object_id) : false;
+    const targetData = artifact ? PATH_DATA.getTargetData(artifact.object_id) : null;
+    const targetContext = PATH_DATA.sessionTargets.length > 0 ? PATH_DATA.getTargetSummary() : '';
+
+    const nextTarget = PATH_DATA.getNextTarget();
+    let nextTargetHint = '';
+    if (nextTarget) {
+      nextTargetHint = `Title: ${nextTarget.artifact.title}\nGallery: ${nextTarget.artifact.gallery_number || '?'}\nMedium: ${nextTarget.artifact.medium || ''}\nPeriod: ${nextTarget.artifact.period || ''}\nDescription: ${(nextTarget.artifact.description || '').substring(0, 200)}`;
+    }
+
+    const system = this.buildSystemPrompt(pathId, artifact, register, {
+      act: actNumber, guideState, actDirective, beatHistory,
+      crisisReady, crisisRevelation, currentClue, isTarget, targetData,
+      targetContext, nextTargetHint
+    });
+
+    let prompt;
+    if (!artifact) {
+      const firstTarget = PATH_DATA.getNextTarget();
+      if (firstTarget) {
+        const ft = firstTarget.artifact;
+        const medium = ft.medium ? ft.medium.split(';')[0].split(',')[0].trim() : '';
+        const gallery = ft.gallery_number || '';
+        prompt = `Generate the opening narration for this path. This is the FIRST thing the player reads — it must be GRIPPING and IMMERSIVE.
+
+HARD LIMIT: Keep your ENTIRE response under 500 characters. Write exactly 3-4 short sentences. No more.
+
+STRUCTURE:
+1. HOOK (1 sentence): Something dramatic just happened. Specific, concrete. Not vague atmosphere.
+2. CONTEXT (1 sentence): Who you are. Why this matters. Show personality and vulnerability.
+3. FIRST DIRECTION (1-2 sentences): Guide them toward the first target: "${ft.title}" (${medium}) in Gallery ${gallery}. Do NOT say "Gallery ${gallery}" or "${ft.title}" directly. Describe WHERE to go using your character's voice — what the room feels like, what the artifact looks like in mythological terms.
+
+Be CONVERSATIONAL. You are a CHARACTER talking to a real person. Be specific. Be vulnerable.`;
+      } else {
+        prompt = `Generate the opening narration for this path. This is the FIRST thing the player reads — make it gripping.
+
+HARD LIMIT: Keep your ENTIRE response under 500 characters. Write exactly 3-4 short sentences. No more.
+
+Hook them with a specific dramatic moment (not vague atmosphere). Establish who you are with personality and vulnerability. End by urging them to scan an artifact nearby.
+
+Be conversational — you are a character talking to a real person.`;
+      }
+    } else if (crisisReady) {
+      prompt = `The player just scanned "${artifact.title}". THIS IS THE CRISIS MOMENT. Deliver the revelation described in your instructions. This changes everything. Make it devastating and beautiful. HARD LIMIT: Keep your ENTIRE response under 500 characters. 3-4 sentences max.`;
+    } else if (isTarget) {
+      prompt = `The player just scanned a TARGET artifact: "${artifact.title}". This is a key discovery! Generate an emotionally charged, story-advancing response that reflects your current emotional state.
+
+Then weave in a clue toward the NEXT target — use the WAYFINDING instructions. Describe WHERE the next artifact is using evocative, mythological language about the room and what the artifact looks like. The player should feel emotionally compelled to walk there. Never say "Gallery X" or "scan an artifact" directly.
+
+HARD LIMIT: Keep your ENTIRE response under 400 characters. 3-4 short sentences max.`;
+    } else {
+      prompt = `The player scanned "${artifact.title}" — interesting, but not a key target. Acknowledge it with something fascinating that ties into the larger story (1 sentence).
+
+Then redirect with a compelling, story-driven clue toward the next target. Use the WAYFINDING instructions — describe the room and artifact in mythological terms that make the player want to walk there.
+
+HARD LIMIT: Keep your ENTIRE response under 300 characters. 2-3 short sentences max.`;
+    }
+
+    return { system, prompt };
+  },
+
+  buildCharacterPrompt(artifact, register, promptContext, targetData) {
+    const { actNumber, guideState, beatHistory, actDirective } = promptContext;
+
+    const characterTypeMap = {
+      pharaoh:   'You are a pharaoh who commissioned this object. You speak with authority but also loneliness.',
+      priest:    'You are a priestess who used this object in temple rituals. You miss the incense and the chanting.',
+      scribe:    'You are a scribe who recorded the prayers inscribed on this object. You love words.',
+      soldier:   'You are a soldier who carried an amulet like this into battle. You have stories of war and friendship.',
+      craftsman: 'You are the craftsman who made this object. You are proud of your work.',
+      child:     'You are a child who was buried with this object. You are curious and a little scared.',
+      musician:  'You are a musician who performed at ceremonies where this object was displayed. You remember the songs.'
+    };
+
+    let characterType;
+    if (targetData && targetData.characterType && characterTypeMap[targetData.characterType]) {
+      characterType = targetData.characterType;
+    } else {
+      const types = Object.keys(characterTypeMap);
+      characterType = types[Math.floor(Math.random() * types.length)];
+    }
+
+    const system = characterTypeMap[characterType] + '\n\n' + this.buildSystemPrompt('awakening', artifact, register, {
+      act: actNumber, guideState, actDirective, beatHistory,
+      targetContext: PATH_DATA.sessionTargets.length > 0 ? PATH_DATA.getTargetSummary() : ''
+    });
+
+    return { system, prompt: '[The mortal approaches your artifact. They look at you curiously.]', characterType };
+  },
+
+  buildChatPrompt(pathId, message, artifact, register) {
+    const state = STORY.state;
+    const ctx = NARRATIVE.buildPromptContext(state, pathId);
+    const system = this.buildSystemPrompt(pathId, artifact, register, {
+      act: ctx.actNumber, guideState: ctx.guideState,
+      actDirective: ctx.actDirective, beatHistory: ctx.beatHistory
+    });
+    return { system, prompt: message };
+  },
+
+  buildConvergencePrompt(register, pathId, journey) {
+    const generator = this._convergencePromptBuilders[pathId];
+    if (generator) {
+      return generator.call(this, register, journey);
+    }
+    return this._convergencePromptBuilders._default.call(this, register, pathId, journey);
+  },
+
+  _convergencePromptBuilders: {
+    search(register, journey) {
+      const pieces = STORY.state.search.piecesFound;
+      const beats = STORY.state.beats;
+      const pieceNames = beats.filter(b => b.isTarget).map(b => b.artifactTitle);
+      const pieceSummary = pieceNames.length > 0
+        ? pieceNames.map(n => `"${n}"`).join(', ')
+        : 'the fragments you gathered';
+
+      const system = `You are OSIRIS — reassembled, but not whole. ${pieces} of your 14 pieces have been found by this mortal.
+You stand in the Hall of Two Truths, your body flickering where pieces are still missing.
+You can FEEL each piece the mortal found. Name them: ${pieceSummary}.
+For each, describe the sensation — the warmth returning to that part of you.
+For the missing pieces, describe the void — the cold, the absence.
+
+The mortal's path was The Search. Isis guided them. She broke down in Act III — she told them about the piece that was never found.
+
+${CLAUDE.registerPrompt(register)}
+${CLAUDE.mythologyContext()}
+
+THEIR JOURNEY: ${journey}
+
+Generate the convergence scene. Osiris names each found piece with emotion. He feels the gaps.
+This is the Weighing of the Heart — their act of searching IS the restoration of Ma'at.
+Make it deeply personal. 6-10 sentences.`;
+
+      return { system, prompt: 'Begin the convergence scene. Name each piece found.' };
+    },
+
+    trial(register, journey) {
+      const horus = STORY.state.trial.horusEvidence;
+      const set = STORY.state.trial.setEvidence;
+      const biasRevealed = STORY.state.trial.thothBias === 'revealed';
+
+      const system = `You are OSIRIS in the Hall of Two Truths. But this is different — the mortal is not being judged. The mortal IS the judge.
+The Contendings of Horus and Set are decided here, now.
+Evidence for Horus (${horus.length} pieces): ${horus.join(', ')}.
+Evidence for Set (${set.length} pieces): ${set.join(', ')}.
+${biasRevealed ? "Thoth's bias was revealed in Act III — he healed Horus's eye. The 'impartial' record was tainted." : ''}
+
+The mortal's verdict IS the weighing of the heart. Their sense of justice is being weighed against Ma'at's feather.
+Do not ask "what did you learn?" — ask them to deliver the verdict: "Who inherits the throne?"
+
+${CLAUDE.registerPrompt(register)}
+${CLAUDE.mythologyContext()}
+
+THEIR JOURNEY: ${journey}
+
+Present the final arguments from both sides — compressed, powerful, referencing the evidence found. Then ask for the verdict. 6-10 sentences.`;
+
+      return { system, prompt: 'Present the final arguments and call for the verdict.' };
+    },
+
+    letters(register, journey) {
+      const possessions = STORY.state.letters.possessionsFound;
+      const secretRevealed = STORY.state.letters.secretRevealed;
+
+      const system = `You are OSIRIS in the Hall of Two Truths. Kha the scribe stands before you — his heart on the scale.
+The mortal found ${possessions.length} of Kha's possessions: ${possessions.join(', ')}.
+${secretRevealed ? "In Act III, Kha confessed his adultery — the priestess at the temple of Hathor. His heart carries this weight." : "Kha's heart carries secrets the mortal may not fully know."}
+
+But this convergence is different: the mortal must SPEAK FOR Kha's heart.
+They have read his letters, found his possessions, learned his story.
+Now they must make the case — not for themselves, but for a man who died 3,000 years ago.
+
+Do not ask "what did you learn?" — ask: "You have carried Kha's story. Now speak for his heart. Does it balance?"
+
+${CLAUDE.registerPrompt(register)}
+${CLAUDE.mythologyContext()}
+
+THEIR JOURNEY: ${journey}
+
+Describe Kha standing at the scales. Show his fear. Then turn to the mortal and ask them to speak for his heart. 6-10 sentences.`;
+
+      return { system, prompt: 'Show Kha at the scales and ask the mortal to speak for his heart.' };
+    },
+
+    memory(register, journey) {
+      const visions = STORY.state.memory.visionsUnlocked;
+
+      const system = `You are OSIRIS in the Hall of Two Truths. But this convergence is a revelation, not a test.
+The mortal has seen ${visions.length} visions across time. Now you reveal the truth: they were all ONE story.
+The visions were not random — they were connected. Each vision was a chapter in a single continuous narrative spanning millennia.
+
+The artifacts the mortal saw: ${visions.map(v => `"${v.title}" (${v.period})`).join(', ')}.
+
+Reveal how they connect — thread them into one story. The Old Kingdom vision was the beginning; the Roman Period vision was the ending. The pattern was always there.
+
+Do not ask "what did you learn?" — instead, SHOW them. "Now see it whole."
+
+${CLAUDE.registerPrompt(register)}
+${CLAUDE.mythologyContext()}
+
+THEIR JOURNEY: ${journey}
+
+Reveal the hidden thread connecting all visions. Make it feel like a mystery solved — the pattern was always there. 6-10 sentences.`;
+
+      return { system, prompt: 'Reveal how all the visions connect into one story.' };
+    },
+
+    awakening(register, journey) {
+      const characters = STORY.state.awakening.charactersMet;
+      const conflicts = STORY.state.awakening.conflicts;
+
+      const system = `You are OSIRIS in the Hall of Two Truths. But you are not alone.
+All the characters the mortal met step forward from the shadows. They are HERE — in the Hall.
+Characters met: ${characters.map(c => `"${c.artifact}" (${c.intro || 'unknown'})`).join('; ')}.
+
+They begin to talk to EACH OTHER. References, inside jokes, old grudges, shared memories.
+${conflicts.length > 0 ? `Conflicts to resolve: ${conflicts.join('; ')}` : 'Old tensions surface.'}
+Then they turn to the mortal: "You connected us. We hadn't spoken in centuries."
+
+This is a community story. The convergence is the reunion.
+
+${CLAUDE.registerPrompt(register)}
+${CLAUDE.mythologyContext()}
+
+THEIR JOURNEY: ${journey}
+
+Show the characters meeting each other. Let them talk. Let the mortal see what they created. 6-10 sentences.`;
+
+      return { system, prompt: 'Show the characters reuniting in the Hall.' };
+    },
+
+    _default(register, pathId, journey) {
+      const system = `You are OSIRIS — weakened, flickering, barely there. You appear in the Hall of Two Truths.
+The mortal has journeyed through the Egyptian Wing and learned the old stories.
+Now you must test what they learned — not trivia, but UNDERSTANDING.
+
+${CLAUDE.registerPrompt(register)}
+${CLAUDE.mythologyContext()}
+
+THE PLAYER'S PATH: ${pathId}
+THEIR JOURNEY: ${journey}
+
+Generate the convergence scene. Osiris appears, weakened. He asks the player what they learned.
+This is the Weighing of the Heart — their understanding is weighed against Ma'at's feather.
+Make it emotional. Make it feel like a conclusion. 6-10 sentences.`;
+
+      return { system, prompt: 'Begin the convergence scene.' };
+    }
+  },
+
+  buildVerdictPrompt(register, pathId, journey, reflection) {
+    const beats = STORY.state.beats;
+    const beatSummary = beats.map(b => `"${b.artifactTitle}" (${b.beatType})`).join(', ');
+
+    const system = `You are OSIRIS, receiving the mortal's reflection. Their heart is being weighed against Ma'at's feather.
+${CLAUDE.registerPrompt(register)}
+The mortal answered: "${reflection}"
+Their path was: ${pathId}
+Their journey: ${journey}
+Their story beats: ${beatSummary}
+
+Generate the weighing result. The heart ALWAYS balances — every player succeeds, because the act of playing, of learning, of caring about the old stories, IS the restoration of Ma'at.
+Make it emotional and personal. Reference what they said AND specific artifacts from their journey. 4-6 sentences. End with the seal being restored.`;
+
+    return { system, prompt: 'Weigh their heart.' };
+  },
+
   resetHistory(key) {
     if (key) {
       delete this.histories[key];

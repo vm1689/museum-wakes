@@ -16,25 +16,103 @@ const GEMINI_VOICE = {
   onStateChange: null,   // callback(state: 'connecting'|'ready'|'listening'|'speaking'|'error'|'closed')
   onTranscript: null,    // callback(text, role) — for showing text alongside voice
 
-  // ── Voice profiles per god/guide ───────────────────────────────────────
-  voiceProfiles: {
-    isis:   'Aoede',
-    thoth:  'Charon',
-    osiris: 'Charon',
-    kha:    'Charon',
-    default: 'Aoede'
+  // ══════════════════════════════════════════════════════════════════════════
+  // VOICE CASTING — 30 Gemini voices mapped to characters, contexts, registers
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── Path guide voices — the primary narrator for each path ────────────
+  guideVoices: {
+    search:    'Aoede',       // Isis — breezy, warm goddess
+    trial:     'Charon',      // Thoth — informative, scholarly
+    letters:   'Enceladus',   // Kha — breathy, intimate, ghostly scribe
+    memory:    'Iapetus',     // Thoth as visionary — clear, revelatory
+    awakening: 'Gacrux'       // Ensemble narrator — mature, grounding
   },
 
-  getVoiceForPath(pathId) {
-    const guides = {
-      search: 'isis',
-      trial: 'thoth',
-      letters: 'kha',
-      memory: 'thoth',
-      awakening: 'thoth'
-    };
-    const guide = guides[pathId] || 'default';
-    return this.voiceProfiles[guide] || this.voiceProfiles.default;
+  // ── Narrator voice — Thoth introducing paths, prologue ────────────────
+  narratorVoice: 'Charon',    // Thoth as master narrator — informative authority
+
+  // ── Osiris — convergence scenes, verdict, epilogue ────────────────────
+  osirisVoice: 'Algenib',     // Gravelly, ancient, worn by death and rebirth
+
+  // ── Awakening character voices — mapped by character type ─────────────
+  characterVoices: {
+    pharaoh:   'Orus',        // Firm, regal authority
+    priest:    'Kore',        // Firm feminine, ritual gravitas
+    priestess: 'Kore',
+    scribe:    'Fenrir',      // Excitable, loves words
+    soldier:   'Puck',        // Upbeat, rough energy
+    craftsman: 'Achird',      // Friendly, practical pride
+    child:     'Leda',        // Youthful, curious
+    musician:  'Aoede',       // Breezy, melodic
+    default:   'Gacrux'       // Mature fallback
+  },
+
+  // ── Register overrides — shift voice choices by audience ──────────────
+  registerOverrides: {
+    kid: {
+      search:    'Sulafat',   // Warm, approachable Isis
+      trial:     'Puck',      // Upbeat, fun Thoth
+      letters:   'Leda',      // Youthful, less spooky Kha
+      narrator:  'Puck',      // Playful narrator
+      osiris:    'Achird',    // Friendly, less intimidating Osiris
+      // Awakening character overrides for kids
+      pharaoh:   'Puck',
+      soldier:   'Sadachbia',  // Lively
+      priest:    'Leda'
+    },
+    teen: {
+      // Teens get edgier voices
+      letters:   'Fenrir',    // Excitable, more energy for ghost letters
+      osiris:    'Rasalgethi' // Informative but different from Thoth
+    },
+    family: {
+      search:    'Sulafat',   // Warm for families
+      narrator:  'Achird',    // Friendly narrator
+      osiris:    'Vindemiatrix' // Gentle Osiris
+    }
+    // adult: uses defaults (no overrides)
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // VOICE GETTERS — used by app.js at each call site
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Voice for the path guide (Isis, Thoth, Kha, etc.)
+   */
+  getVoiceForPath(pathId, register) {
+    const override = register && this.registerOverrides[register];
+    if (override && override[pathId]) return override[pathId];
+    return this.guideVoices[pathId] || this.narratorVoice;
+  },
+
+  /**
+   * Voice for Thoth as narrator (path intros, prologue)
+   */
+  getVoiceForNarrator(register) {
+    const override = register && this.registerOverrides[register];
+    if (override && override.narrator) return override.narrator;
+    return this.narratorVoice;
+  },
+
+  /**
+   * Voice for Osiris (convergence, verdict, epilogue)
+   */
+  getVoiceForOsiris(register) {
+    const override = register && this.registerOverrides[register];
+    if (override && override.osiris) return override.osiris;
+    return this.osirisVoice;
+  },
+
+  /**
+   * Voice for an Awakening path character by type
+   */
+  getVoiceForCharacter(characterType, register) {
+    // Check register override first
+    const override = register && this.registerOverrides[register];
+    if (override && override[characterType]) return override[characterType];
+    return this.characterVoices[characterType] || this.characterVoices.default;
   },
 
   // ── Start voice session ───────────────────────────────────────────────
@@ -231,6 +309,13 @@ const GEMINI_VOICE = {
       this._stopPlayback();
       this._setState('listening');
       return;
+    }
+
+    // Output transcription — text transcript of what Gemini is speaking
+    if (serverContent.outputTranscription && serverContent.outputTranscription.text) {
+      if (this.onTranscript) {
+        this.onTranscript(serverContent.outputTranscription.text, 'model');
+      }
     }
 
     // Audio/text from model

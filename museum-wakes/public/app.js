@@ -175,16 +175,23 @@ const APP = {
     document.getElementById('path-intro-name').textContent = path.name;
     document.getElementById('path-intro-subtitle').textContent = rc.subtitle || path.subtitle;
 
-    const narration = await CLAUDE.generatePathIntro(pathId, STORY.state.register);
     const el = document.getElementById('path-intro-narration');
+    const voice = GEMINI_VOICE.getVoiceForNarrator(register);
 
-    if (narration) {
-      el.innerHTML = this._formatNarration(narration);
-      if (this.voiceEnabled && VOICE.supported()) {
-        VOICE.speak(narration, { gender: 'male', rate: 0.85 });
+    if (this.voiceEnabled && VOICE.supported()) {
+      const { system, prompt } = CLAUDE.buildPathIntroPrompt(pathId, register);
+      const transcript = await VOICE.generateAndSpeak(system, prompt, {
+        voice,
+        onText: (text) => { el.innerHTML = this._formatNarration(text); }
+      });
+      if (transcript) {
+        el.innerHTML = this._formatNarration(transcript);
+      } else {
+        el.innerHTML = this._formatNarration(path.description);
       }
     } else {
-      el.innerHTML = this._formatNarration(path.description);
+      const narration = await CLAUDE.generatePathIntro(pathId, STORY.state.register);
+      el.innerHTML = this._formatNarration(narration || path.description);
     }
 
     this._pendingPath = pathId;
@@ -236,24 +243,31 @@ const APP = {
   async _generateOpeningMessage() {
     const pathId = STORY.state.pathId;
     const register = STORY.state.register;
+    const promptContext = NARRATIVE.buildPromptContext(STORY.state, pathId);
+    const voice = GEMINI_VOICE.getVoiceForPath(pathId, register);
 
     this._showThinking(true);
 
-    // Build prompt context from narrative engine
-    const promptContext = NARRATIVE.buildPromptContext(STORY.state, pathId);
-
-    const message = await CLAUDE.generateStoryBeat(pathId, null, register, promptContext);
+    let message;
+    if (this.voiceEnabled && VOICE.supported()) {
+      const { system, prompt } = CLAUDE.buildStoryBeatPrompt(pathId, null, register, promptContext);
+      message = await VOICE.generateAndSpeak(system, prompt, {
+        voice,
+        historyKey: `path_${pathId}`,
+        onText: (text) => {
+          this._showThinking(false);
+          this._updateLastGuideEntry(text);
+        }
+      });
+    } else {
+      message = await CLAUDE.generateStoryBeat(pathId, null, register, promptContext);
+    }
 
     this._showThinking(false);
 
     if (message) {
       this._addGuideEntry(message);
-      if (this.voiceEnabled && VOICE.supported()) {
-        const gender = pathId === 'search' ? 'female' : 'male';
-        VOICE.speak(message, { gender, rate: 0.85 });
-      }
     } else {
-      // Path-specific rich fallback with visceral motivation
       this._addGuideEntry(this._getOpeningFallback());
     }
 
@@ -285,23 +299,30 @@ const APP = {
     this._addPlayerEntry(msg);
     this._showThinking(true);
 
-    const reply = await CLAUDE.chat(
-      STORY.state.pathId,
-      msg,
-      this.currentArtifact,
-      STORY.state.register,
-      STORY.getJourneySummary()
-    );
+    const pathId = STORY.state.pathId;
+    const register = STORY.state.register;
+    const voice = GEMINI_VOICE.getVoiceForPath(pathId, register);
+    let reply;
+
+    if (this.voiceEnabled && VOICE.supported()) {
+      const { system, prompt } = CLAUDE.buildChatPrompt(pathId, msg, this.currentArtifact, register);
+      reply = await VOICE.generateAndSpeak(system, prompt, {
+        voice,
+        historyKey: `path_${pathId}_chat`,
+        onText: (text) => {
+          this._showThinking(false);
+          this._updateLastGuideEntry(text);
+        }
+      });
+    } else {
+      reply = await CLAUDE.chat(pathId, msg, this.currentArtifact, STORY.state.register, STORY.getJourneySummary());
+    }
 
     this._showThinking(false);
 
     if (reply) {
       this._addGuideEntry(reply);
       STORY.addChatMoment(msg.substring(0, 50));
-      if (this.voiceEnabled && VOICE.supported()) {
-        const gender = STORY.state.pathId === 'search' ? 'female' : 'male';
-        VOICE.speak(reply, { gender, rate: 0.85 });
-      }
     } else {
       this._addGuideEntry('The gods fall silent for a moment. Perhaps try scanning another artifact.');
     }
@@ -474,6 +495,7 @@ const APP = {
     const pathId = STORY.state.pathId;
     const register = STORY.state.register;
     const promptContext = NARRATIVE.buildPromptContext(STORY.state, pathId);
+    const voice = GEMINI_VOICE.getVoiceForPath(pathId, register);
 
     const system = CLAUDE.buildSystemPrompt(pathId, nextTarget.artifact, register, {
       act: promptContext.actNumber,
@@ -490,19 +512,29 @@ const APP = {
     const prompt = `The player skipped the previous target. Redirect them toward the next artifact: "${nextTarget.artifact.title}" in Gallery ${nextTarget.artifact.gallery_number || '?'}. Evocative, not gamey. Stay in character. HARD LIMIT: Keep your ENTIRE response under 250 characters. 2 short sentences max.`;
 
     this._showThinking(true);
-    const response = await CLAUDE.generate(system, prompt, {
-      maxTokens: 500,
-      temperature: 0.9,
-      historyKey: `path_${pathId}`
-    });
+
+    let response;
+    if (this.voiceEnabled && VOICE.supported()) {
+      response = await VOICE.generateAndSpeak(system, prompt, {
+        voice,
+        historyKey: `path_${pathId}`,
+        onText: (text) => {
+          this._showThinking(false);
+          this._updateLastGuideEntry(text);
+        }
+      });
+    } else {
+      response = await CLAUDE.generate(system, prompt, {
+        maxTokens: 500,
+        temperature: 0.9,
+        historyKey: `path_${pathId}`
+      });
+    }
+
     this._showThinking(false);
 
     if (response) {
       this._addGuideEntry(response);
-      if (this.voiceEnabled && VOICE.supported()) {
-        const gender = pathId === 'search' ? 'female' : 'male';
-        VOICE.speak(response, { gender, rate: 0.85 });
-      }
     }
   },
 
@@ -618,10 +650,30 @@ const APP = {
     const promptContext = NARRATIVE.buildPromptContext(STORY.state, pathId);
 
     let response;
-    if (pathId === 'awakening') {
-      response = await CLAUDE.generateCharacter(artifact, register, promptContext, targetData);
+    if (this.voiceEnabled && VOICE.supported()) {
+      let prompts;
+      let voice;
+      if (pathId === 'awakening') {
+        prompts = CLAUDE.buildCharacterPrompt(artifact, register, promptContext, targetData);
+        voice = GEMINI_VOICE.getVoiceForCharacter(prompts.characterType, register);
+      } else {
+        prompts = CLAUDE.buildStoryBeatPrompt(pathId, artifact, register, promptContext);
+        voice = GEMINI_VOICE.getVoiceForPath(pathId, register);
+      }
+      response = await VOICE.generateAndSpeak(prompts.system, prompts.prompt, {
+        voice,
+        historyKey: pathId === 'awakening' ? `char_${artifact?.object_id || 'unknown'}` : `path_${pathId}`,
+        onText: (text) => {
+          this._showThinking(false);
+          this._updateLastGuideEntry(text);
+        }
+      });
     } else {
-      response = await CLAUDE.generateStoryBeat(pathId, artifact, register, promptContext);
+      if (pathId === 'awakening') {
+        response = await CLAUDE.generateCharacter(artifact, register, promptContext, targetData);
+      } else {
+        response = await CLAUDE.generateStoryBeat(pathId, artifact, register, promptContext);
+      }
     }
 
     this._showThinking(false);
@@ -645,11 +697,6 @@ const APP = {
       const nextTarget = PATH_DATA.getNextTarget();
       if (nextTarget) {
         this._addHintCard(nextTarget);
-      }
-
-      if (this.voiceEnabled && VOICE.supported()) {
-        const gender = pathId === 'search' ? 'female' : 'male';
-        VOICE.speak(response, { gender, rate: 0.85 });
       }
     }
 
@@ -790,18 +837,29 @@ const APP = {
       convGlow.style.background = `radial-gradient(circle, ${pathColor}18 0%, transparent 70%)`;
     }
 
-    const narration = await CLAUDE.generateConvergence(
-      STORY.state.register,
-      STORY.state.pathId,
-      STORY.getJourneySummary()
-    );
-
     const el = document.getElementById('conv-narration');
+    let narration;
+
+    if (this.voiceEnabled && VOICE.supported()) {
+      const { system, prompt } = CLAUDE.buildConvergencePrompt(
+        STORY.state.register,
+        STORY.state.pathId,
+        STORY.getJourneySummary()
+      );
+      narration = await VOICE.generateAndSpeak(system, prompt, {
+        voice: GEMINI_VOICE.getVoiceForOsiris(STORY.state.register),
+        onText: (text) => { el.innerHTML = this._formatNarration(text); }
+      });
+    } else {
+      narration = await CLAUDE.generateConvergence(
+        STORY.state.register,
+        STORY.state.pathId,
+        STORY.getJourneySummary()
+      );
+    }
+
     if (narration) {
       el.innerHTML = this._formatNarration(narration);
-      if (this.voiceEnabled && VOICE.supported()) {
-        VOICE.speak(narration, { gender: 'male', rate: 0.8 });
-      }
     } else {
       el.innerHTML = this._formatNarration(
         'Osiris appears before you, weakened, flickering like a candle in the wind. ' +
@@ -823,20 +881,29 @@ const APP = {
     document.getElementById('conv-reflection').style.display = 'none';
     this._showConvergenceThinking(true);
 
-    const beats = STORY.state.beats;
-    const beatSummary = beats.map(b => `"${b.artifactTitle}" (${b.beatType})`).join(', ');
+    const verdictEl = document.getElementById('conv-verdict');
+    let verdict;
 
-    const system = `You are OSIRIS, receiving the mortal's reflection. Their heart is being weighed against Ma'at's feather.
-${CLAUDE.registerPrompt(STORY.state.register)}
-The mortal answered: "${reflection}"
-Their path was: ${STORY.state.pathId}
-Their journey: ${STORY.getJourneySummary()}
-Their story beats: ${beatSummary}
-
-Generate the weighing result. The heart ALWAYS balances \u2014 every player succeeds, because the act of playing, of learning, of caring about the old stories, IS the restoration of Ma'at.
-Make it emotional and personal. Reference what they said AND specific artifacts from their journey. 4-6 sentences. End with the seal being restored.`;
-
-    const verdict = await CLAUDE.generate(system, 'Weigh their heart.', { maxTokens: 400 });
+    if (this.voiceEnabled && VOICE.supported()) {
+      const { system, prompt } = CLAUDE.buildVerdictPrompt(
+        STORY.state.register,
+        STORY.state.pathId,
+        STORY.getJourneySummary(),
+        reflection
+      );
+      verdict = await VOICE.generateAndSpeak(system, prompt, {
+        voice: GEMINI_VOICE.getVoiceForOsiris(STORY.state.register),
+        onText: (text) => { verdictEl.innerHTML = this._formatNarration(text); }
+      });
+    } else {
+      const { system, prompt } = CLAUDE.buildVerdictPrompt(
+        STORY.state.register,
+        STORY.state.pathId,
+        STORY.getJourneySummary(),
+        reflection
+      );
+      verdict = await CLAUDE.generate(system, prompt, { maxTokens: 400 });
+    }
 
     this._showConvergenceThinking(false);
 
@@ -844,12 +911,9 @@ Make it emotional and personal. Reference what they said AND specific artifacts 
     resultEl.style.display = 'block';
 
     if (verdict) {
-      document.getElementById('conv-verdict').innerHTML = this._formatNarration(verdict);
-      if (this.voiceEnabled && VOICE.supported()) {
-        VOICE.speak(verdict, { gender: 'male', rate: 0.8 });
-      }
+      verdictEl.innerHTML = this._formatNarration(verdict);
     } else {
-      document.getElementById('conv-verdict').innerHTML = this._formatNarration(
+      verdictEl.innerHTML = this._formatNarration(
         'The scales tip... and balance. Your heart is true. ' +
         'The seal holds. Osiris is restored \u2014 not by magic, but by memory. ' +
         'By the act of listening. That is all we have ever asked.'
@@ -1146,11 +1210,38 @@ Make it emotional and personal. Reference what they said AND specific artifacts 
   // ══════════════════════════════════════════════════════════════════════════
 
   /**
+   * Update or create the last guide entry in-place (for progressive text streaming).
+   * Used by onText callbacks during generateAndSpeak().
+   */
+  _updateLastGuideEntry(text) {
+    const container = document.getElementById('gp-scroll-content');
+    let entry = container.querySelector('.guide-entry.streaming');
+    if (!entry) {
+      entry = document.createElement('div');
+      entry.className = 'story-entry guide-entry streaming';
+      const path = STORY.paths[STORY.state.pathId];
+      const guideName = path ? path.guide : 'Thoth';
+      entry.innerHTML = `
+        <div class="entry-source">${guideName}</div>
+        <div class="entry-text"></div>
+      `;
+      container.appendChild(entry);
+    }
+    entry.querySelector('.entry-text').innerHTML = this._formatInline(text);
+    this._scrollToBottom();
+  },
+
+  /**
    * Guide entry — the god/guide's narrative text.
    * Rendered as cinematic serif text with left border accent.
    */
   _addGuideEntry(text, beatType = null, isTurningPoint = false) {
     const container = document.getElementById('gp-scroll-content');
+
+    // Remove any streaming entry (from progressive onText updates) — this final entry replaces it
+    const streaming = container.querySelector('.guide-entry.streaming');
+    if (streaming) streaming.remove();
+
     const entry = document.createElement('div');
     entry.className = 'story-entry guide-entry';
 

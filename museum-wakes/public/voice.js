@@ -1,18 +1,14 @@
-// voice.js — Gemini Native Audio TTS via WebSocket
-// Replaces browser speechSynthesis with Gemini 2.5 Flash Native Audio
-// Falls back to speechSynthesis if WebSocket connection fails
+// voice.js — Gemini Native Audio generation via WebSocket
+// Primary method: generateAndSpeak() — sends prompts to Gemini, gets native audio + transcript
+// Falls back to text-only generation via /api/gemini if WebSocket fails
 
 const VOICE = {
-  ws: null,
   playbackCtx: null,
   speaking: false,
-  _currentVoice: null,
   _playQueue: [],
   _isPlaying: false,
   _currentSource: null,
-  _pendingText: null,
-  _speakId: 0,       // monotonic ID to detect superseded speak() calls
-  _connectPromise: null,
+  _speakId: 0,       // monotonic ID to detect superseded calls
 
   init() {
     // Playback context at 24kHz (Gemini native audio output rate)
@@ -23,164 +19,195 @@ const VOICE = {
     } catch {}
   },
 
-  speak(text, { gender = 'male', rate, pitch, volume } = {}) {
-    if (!text) return;
-    this.stop();
+  // ══════════════════════════════════════════════════════════════════════════
+  // PRIMARY METHOD: Generate response as native audio + transcript
+  // ══════════════════════════════════════════════════════════════════════════
 
-    const voiceName = gender === 'female' ? 'Aoede' : 'Charon';
+  /**
+   * Send system + user prompt to Gemini via WebSocket for native audio generation.
+   * Returns the spoken transcript text for display.
+   *
+   * @param {string} systemPrompt - Full character/narrative system prompt
+   * @param {string} userPrompt - The user-facing prompt
+   * @param {Object} options
+   * @param {string} options.voice - Gemini voice name (e.g. 'Aoede', 'Charon')
+   * @param {function} options.onText - Progressive text callback: onText(partialText)
+   * @param {string} options.historyKey - Key for conversation history in CLAUDE.histories
+   * @returns {Promise<string>} Full transcript of what Gemini spoke
+   */
+  async generateAndSpeak(systemPrompt, userPrompt, { voice = 'Charon', onText, historyKey } = {}) {
+    this.stop();
     this.speaking = true;
-    this._pendingText = text;
     const id = ++this._speakId;
 
-    this._ensureConnection(voiceName).then(() => {
-      if (this._speakId !== id) return; // superseded by new speak() call
-      this._sendText(text);
-    }).catch(() => {
-      if (this._speakId !== id) return;
-      // Fallback to browser speechSynthesis
-      this._fallbackSpeak(text, gender, rate, pitch, volume);
+    try {
+      const transcript = await this._wsGenerateAndSpeak(systemPrompt, userPrompt, voice, onText, id);
+
+      // Store in CLAUDE history if key provided
+      if (historyKey && transcript) {
+        if (!CLAUDE.histories[historyKey]) CLAUDE.histories[historyKey] = [];
+        CLAUDE.histories[historyKey].push({ role: 'user', content: userPrompt });
+        CLAUDE.histories[historyKey].push({ role: 'assistant', content: transcript });
+      }
+
+      if (this._speakId === id) this.speaking = false;
+      return transcript;
+    } catch (err) {
+      console.warn('[VOICE] WebSocket generation failed, falling back to text API:', err.message);
+      if (this._speakId !== id) return '';
+
+      // Fallback: generate text via REST API, no audio
+      return this._fallbackGenerate(systemPrompt, userPrompt, historyKey);
+    }
+  },
+
+  // ── WebSocket-based generation ────────────────────────────────────────
+
+  _wsGenerateAndSpeak(systemPrompt, userPrompt, voiceName, onText, speakId) {
+    return new Promise((resolve, reject) => {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${location.host}/ws/voice`);
+      let transcriptParts = [];
+      let setupDone = false;
+
+      const timeout = setTimeout(() => {
+        reject(new Error('WebSocket timeout'));
+        try { ws.close(); } catch {}
+      }, 30000);
+
+      ws.onopen = () => {
+        // Send setup with full system prompt and voice
+        ws.send(JSON.stringify({
+          type: 'setup',
+          systemInstruction: systemPrompt,
+          voice: voiceName
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        if (this._speakId !== speakId) {
+          // Superseded — close and resolve with whatever we have
+          clearTimeout(timeout);
+          try { ws.close(); } catch {}
+          resolve(transcriptParts.join(''));
+          return;
+        }
+
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+
+        if (msg.type === 'ready') {
+          setupDone = true;
+          // Now send the user prompt as client content
+          ws.send(JSON.stringify({ type: 'text', text: userPrompt }));
+          return;
+        }
+
+        if (msg.type === 'error') {
+          clearTimeout(timeout);
+          try { ws.close(); } catch {}
+          if (!setupDone) {
+            reject(new Error(msg.message));
+          } else {
+            resolve(transcriptParts.join(''));
+          }
+          return;
+        }
+
+        if (msg.type === 'response' && msg.data) {
+          const sc = msg.data.serverContent;
+          if (!sc) return;
+
+          // Interruption
+          if (sc.interrupted) {
+            this._stopPlayback();
+            return;
+          }
+
+          // Output transcription — text of what Gemini is speaking
+          if (sc.outputTranscription && sc.outputTranscription.text) {
+            transcriptParts.push(sc.outputTranscription.text);
+            if (onText) onText(transcriptParts.join(''));
+          }
+
+          // Audio chunks from model
+          const parts = sc.modelTurn?.parts || [];
+          for (const part of parts) {
+            if (part.inlineData && part.inlineData.mimeType?.startsWith('audio/')) {
+              this._queueAudio(part.inlineData.data);
+            }
+          }
+
+          // Turn complete — done
+          if (sc.turnComplete) {
+            clearTimeout(timeout);
+            this._flushAudio();
+            // Give a small delay for final audio to queue, then close
+            setTimeout(() => {
+              try { ws.close(); } catch {}
+            }, 500);
+            resolve(transcriptParts.join(''));
+          }
+        }
+
+        if (msg.type === 'closed') {
+          clearTimeout(timeout);
+          resolve(transcriptParts.join(''));
+        }
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        reject(new Error('WebSocket error'));
+      };
+
+      ws.onclose = () => {
+        clearTimeout(timeout);
+        // If we haven't resolved yet, resolve with whatever transcript we have
+        resolve(transcriptParts.join(''));
+      };
     });
   },
+
+  // ── Fallback: text-only generation via REST API ────────────────────────
+
+  async _fallbackGenerate(systemPrompt, userPrompt, historyKey) {
+    try {
+      const text = await CLAUDE.generate(systemPrompt, userPrompt, {
+        maxTokens: 800,
+        temperature: 0.9,
+        historyKey
+      });
+      this.speaking = false;
+      return text || '';
+    } catch (e) {
+      console.error('[VOICE] Fallback generation also failed:', e);
+      this.speaking = false;
+      return '';
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // STOP / SUPPORT
+  // ══════════════════════════════════════════════════════════════════════════
 
   stop() {
     this._speakId++;
     this._stopPlayback();
     this.speaking = false;
-    this._pendingText = null;
-    // Also stop any speechSynthesis fallback
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
   },
 
   supported() {
-    return !!(window.WebSocket || ('speechSynthesis' in window));
+    return !!(window.WebSocket);
   },
 
-  // ── Connection management ───────────────────────────────────────────────
-  _ensureConnection(voiceName) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN && this._currentVoice === voiceName) {
-      return Promise.resolve();
-    }
-    // If already connecting with the right voice, reuse that promise
-    if (this._connectPromise && this._connectingVoice === voiceName) {
-      return this._connectPromise;
-    }
-    this._connectPromise = this._connect(voiceName);
-    this._connectingVoice = voiceName;
-    return this._connectPromise;
-  },
+  // ══════════════════════════════════════════════════════════════════════════
+  // AUDIO PLAYBACK (24kHz PCM) — shared by generateAndSpeak
+  // ══════════════════════════════════════════════════════════════════════════
 
-  _connect(voiceName) {
-    return new Promise((resolve, reject) => {
-      // Close existing connection
-      if (this.ws) {
-        try { this.ws.close(); } catch {}
-        this.ws = null;
-        this._currentVoice = null;
-      }
-
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      this.ws = new WebSocket(`${protocol}//${location.host}/ws/voice`);
-
-      const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout'));
-        try { this.ws.close(); } catch {}
-      }, 8000);
-
-      this.ws.onopen = () => {
-        this.ws.send(JSON.stringify({
-          type: 'setup',
-          systemInstruction: [
-            'You are a dramatic voice narrator for an Egyptian mystery game at the Metropolitan Museum of Art.',
-            'When you receive text, PERFORM it as a dramatic reading — speak every word EXACTLY as written.',
-            'Do NOT respond to the text. Do NOT add your own words. Do NOT paraphrase.',
-            'Simply read the given text aloud with:',
-            '- Rich emotional delivery matched to the content',
-            '- Dramatic pauses at key moments',
-            '- Varied intonation — whisper when mysterious, intensify when urgent, soften when tender',
-            '- Reverent, powerful tone for mythology and gods',
-            '- A sense of atmosphere — you are the voice of ancient Egypt speaking in a darkened museum'
-          ].join('\n'),
-          voice: voiceName
-        }));
-      };
-
-      this.ws.onmessage = (event) => {
-        let msg;
-        try { msg = JSON.parse(event.data); } catch { return; }
-
-        if (msg.type === 'ready') {
-          clearTimeout(timeout);
-          this._currentVoice = voiceName;
-          this._connectPromise = null;
-          resolve();
-          return;
-        }
-
-        if (msg.type === 'error') {
-          clearTimeout(timeout);
-          this._connectPromise = null;
-          reject(new Error(msg.message));
-          return;
-        }
-
-        if (msg.type === 'response' && msg.data) {
-          this._handleAudioResponse(msg.data);
-        }
-
-        if (msg.type === 'closed') {
-          this._currentVoice = null;
-        }
-      };
-
-      this.ws.onerror = () => {
-        clearTimeout(timeout);
-        this._connectPromise = null;
-        this._currentVoice = null;
-        reject(new Error('WebSocket error'));
-      };
-
-      this.ws.onclose = () => {
-        this._currentVoice = null;
-        this._connectPromise = null;
-      };
-    });
-  },
-
-  // ── Send text for TTS ──────────────────────────────────────────────────
-  _sendText(text) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: 'text', text }));
-  },
-
-  // ── Handle Gemini audio response ───────────────────────────────────────
-  _handleAudioResponse(response) {
-    const sc = response.serverContent;
-    if (!sc) return;
-
-    // Barge-in / interruption
-    if (sc.interrupted) {
-      this._stopPlayback();
-      this.speaking = false;
-      return;
-    }
-
-    // Audio chunks from model
-    const parts = sc.modelTurn?.parts || [];
-    for (const part of parts) {
-      if (part.inlineData && part.inlineData.mimeType?.startsWith('audio/')) {
-        this._queueAudio(part.inlineData.data);
-      }
-    }
-
-    // Turn complete — flush remaining audio
-    if (sc.turnComplete) {
-      this._flushAudio();
-    }
-  },
-
-  // ── Audio playback (24kHz PCM) ─────────────────────────────────────────
   _stopPlayback() {
     if (this._currentSource) {
       try { this._currentSource.stop(); } catch {}
@@ -198,7 +225,6 @@ const VOICE = {
   },
 
   _flushAudio() {
-    // Ensure any remaining queued audio gets played
     if (!this._isPlaying && this._playQueue.length > 0) {
       this._playQueuedAudio();
     }
@@ -215,7 +241,6 @@ const VOICE = {
     }
 
     this._isPlaying = false;
-    // If no more audio and turn is complete, mark as done
     if (this._playQueue.length === 0 && this._speakId === id) {
       this.speaking = false;
     }
@@ -262,36 +287,5 @@ const VOICE = {
         resolve();
       }
     });
-  },
-
-  // ── Fallback: browser speechSynthesis ──────────────────────────────────
-  _fallbackSpeak(text, gender, rate, pitch, volume) {
-    const synth = window.speechSynthesis;
-    if (!synth) {
-      this.speaking = false;
-      return;
-    }
-
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.rate = rate || 0.88;
-    utt.pitch = pitch ?? (gender === 'female' ? 1.1 : 0.85);
-    utt.volume = volume || 1;
-
-    // Try to pick a voice
-    const voices = synth.getVoices();
-    if (voices.length > 0) {
-      const eng = voices.filter(v => v.lang.startsWith('en'));
-      if (gender === 'female') {
-        const fem = eng.find(v => /samantha|karen|victoria|fiona|zira/i.test(v.name));
-        if (fem) utt.voice = fem;
-      } else {
-        const mal = eng.find(v => /daniel|alex|david|aaron|fred/i.test(v.name));
-        if (mal) utt.voice = mal;
-      }
-    }
-
-    utt.onend = () => { this.speaking = false; };
-    utt.onerror = () => { this.speaking = false; };
-    synth.speak(utt);
   }
 };

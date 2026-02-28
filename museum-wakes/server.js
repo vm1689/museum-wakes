@@ -510,6 +510,7 @@ wss.on('connection', (clientWs) => {
                 }
               }
             },
+            outputAudioTranscription: {},
             realtimeInputConfig: {
               automaticActivityDetection: {
                 disabled: false,
