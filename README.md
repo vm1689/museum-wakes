@@ -1,5 +1,7 @@
 # Museum Wakes
 
+![Museum Wakes Banner](museum-wakes/public/images/readme-banner.png)
+
 **An Egyptian Mystery at The Metropolitan Museum of Art**
 
 Museum Wakes transforms the Met's Egyptian Wing into an immersive narrative mystery — powered entirely by generative AI. Visitors walk real galleries, scan real artifacts with their phone camera, and have live conversations with ancient gods and characters who respond in their own voice, in character, and in real time.
