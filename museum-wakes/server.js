@@ -482,7 +482,6 @@ wss.on('connection', (clientWs) => {
   }
 
   let geminiWs = null;
-  let setupDone = false;
 
   clientWs.on('message', (data) => {
     let msg;
@@ -498,7 +497,6 @@ wss.on('connection', (clientWs) => {
       geminiWs = new WebSocket(geminiUrl);
 
       geminiWs.on('open', () => {
-        // Send BidiGenerateContent setup message
         const setupMsg = {
           setup: {
             model: `models/${VOICE_MODEL}`,
@@ -511,6 +509,15 @@ wss.on('connection', (clientWs) => {
                   }
                 }
               }
+            },
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                disabled: false,
+                startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+                endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+                silenceDurationMs: 500
+              },
+              activityHandling: 'START_OF_ACTIVITY_INTERRUPTS'
             }
           }
         };
@@ -522,29 +529,32 @@ wss.on('connection', (clientWs) => {
         }
 
         geminiWs.send(JSON.stringify(setupMsg));
-        setupDone = true;
-        clientWs.send(JSON.stringify({ type: 'ready' }));
       });
 
       geminiWs.on('message', (geminiData) => {
-        // Forward Gemini responses to client
         try {
           const response = JSON.parse(geminiData);
+
+          // Wait for setupComplete before telling client we're ready
+          if (response.setupComplete) {
+            clientWs.send(JSON.stringify({ type: 'ready' }));
+            return;
+          }
+
           clientWs.send(JSON.stringify({ type: 'response', data: response }));
         } catch {
-          // Binary data — forward as-is
           clientWs.send(geminiData);
         }
       });
 
       geminiWs.on('close', () => {
-        clientWs.send(JSON.stringify({ type: 'closed' }));
+        try { clientWs.send(JSON.stringify({ type: 'closed' })); } catch {}
         clientWs.close();
       });
 
       geminiWs.on('error', (err) => {
         console.error('Gemini Live WS error:', err.message);
-        clientWs.send(JSON.stringify({ type: 'error', message: err.message }));
+        try { clientWs.send(JSON.stringify({ type: 'error', message: err.message })); } catch {}
       });
 
       return;
@@ -553,17 +563,15 @@ wss.on('connection', (clientWs) => {
     // Forward audio and other messages to Gemini
     if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
       if (msg.type === 'audio') {
-        // Client sends audio chunks as base64
         geminiWs.send(JSON.stringify({
           realtimeInput: {
-            mediaChunks: [{
+            audio: {
               mimeType: 'audio/pcm;rate=16000',
               data: msg.data
-            }]
+            }
           }
         }));
       } else if (msg.type === 'text') {
-        // Client sends text input
         geminiWs.send(JSON.stringify({
           clientContent: {
             turns: [{

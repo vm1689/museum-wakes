@@ -1,17 +1,20 @@
 // gemini-voice.js — Gemini Live voice mode via WebSocket
 // Bidirectional audio: mic → Gemini → speaker
+// Uses Gemini 2.5 Flash Native Audio with automatic activity detection and barge-in
 
 const GEMINI_VOICE = {
   ws: null,
-  audioContext: null,
+  captureCtx: null,      // AudioContext for mic capture (16kHz)
+  playbackCtx: null,     // AudioContext for speaker output (24kHz)
   mediaStream: null,
   processorNode: null,
   isActive: false,
   isReady: false,
   playQueue: [],
   isPlaying: false,
-  onStateChange: null,  // callback(state: 'connecting'|'ready'|'listening'|'speaking'|'error'|'closed')
-  onTranscript: null,   // callback(text, role) — for showing text alongside voice
+  _currentSource: null,  // Currently playing AudioBufferSourceNode
+  onStateChange: null,   // callback(state: 'connecting'|'ready'|'listening'|'speaking'|'error'|'closed')
+  onTranscript: null,    // callback(text, role) — for showing text alongside voice
 
   // ── Voice profiles per god/guide ───────────────────────────────────────
   voiceProfiles: {
@@ -41,19 +44,25 @@ const GEMINI_VOICE = {
     this._setState('connecting');
 
     try {
-      // Request microphone
+      // Request microphone with echo cancellation
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: 16000,
           channelCount: 1,
           echoCancellation: true,
-          noiseSuppression: true
+          noiseSuppression: true,
+          autoGainControl: true
         }
       });
 
-      // Set up audio context for capture
-      this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+      // Capture context at 16kHz for mic → Gemini
+      this.captureCtx = new (window.AudioContext || window.webkitAudioContext)({
         sampleRate: 16000
+      });
+
+      // Playback context at 24kHz for Gemini → speaker
+      this.playbackCtx = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: 24000
       });
 
       // Connect to server WebSocket proxy
@@ -61,7 +70,6 @@ const GEMINI_VOICE = {
       this.ws = new WebSocket(`${protocol}//${location.host}/ws/voice`);
 
       this.ws.onopen = () => {
-        // Send setup with system instruction and voice selection
         const voice = this.getVoiceForPath(pathId);
         this.ws.send(JSON.stringify({
           type: 'setup',
@@ -107,6 +115,8 @@ const GEMINI_VOICE = {
       this.ws = null;
     }
 
+    this._stopPlayback();
+
     if (this.processorNode) {
       this.processorNode.disconnect();
       this.processorNode = null;
@@ -117,15 +127,21 @@ const GEMINI_VOICE = {
       this.mediaStream = null;
     }
 
-    if (this.audioContext) {
-      this.audioContext.close().catch(() => {});
-      this.audioContext = null;
+    if (this.captureCtx) {
+      this.captureCtx.close().catch(() => {});
+      this.captureCtx = null;
+    }
+
+    if (this.playbackCtx) {
+      this.playbackCtx.close().catch(() => {});
+      this.playbackCtx = null;
     }
 
     this.isActive = false;
     this.isReady = false;
     this.playQueue = [];
     this.isPlaying = false;
+    this._currentSource = null;
     this._setState('closed');
   },
 
@@ -137,13 +153,13 @@ const GEMINI_VOICE = {
 
   // ── Start streaming mic audio ─────────────────────────────────────────
   _startMicStream() {
-    if (!this.audioContext || !this.mediaStream) return;
+    if (!this.captureCtx || !this.mediaStream) return;
 
-    const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+    const source = this.captureCtx.createMediaStreamSource(this.mediaStream);
 
     // Use ScriptProcessor for wider compatibility (AudioWorklet needs HTTPS)
     const bufferSize = 4096;
-    this.processorNode = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
+    this.processorNode = this.captureCtx.createScriptProcessor(bufferSize, 1, 1);
 
     this.processorNode.onaudioprocess = (e) => {
       if (!this.isActive || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
@@ -157,9 +173,9 @@ const GEMINI_VOICE = {
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
       }
 
-      // Encode as base64
+      // Encode as base64 (chunked to avoid call stack overflow)
       const bytes = new Uint8Array(pcm16.buffer);
-      const base64 = btoa(String.fromCharCode(...bytes));
+      const base64 = this._bytesToBase64(bytes);
 
       this.ws.send(JSON.stringify({
         type: 'audio',
@@ -168,7 +184,7 @@ const GEMINI_VOICE = {
     };
 
     source.connect(this.processorNode);
-    this.processorNode.connect(this.audioContext.destination);
+    this.processorNode.connect(this.captureCtx.destination);
 
     this._setState('listening');
   },
@@ -207,15 +223,17 @@ const GEMINI_VOICE = {
 
   // ── Process Gemini Live response ──────────────────────────────────────
   _processGeminiResponse(response) {
-    // Handle setup complete
-    if (response.setupComplete) {
-      return;
-    }
-
-    // Handle server content (audio/text)
     const serverContent = response.serverContent;
     if (!serverContent) return;
 
+    // Barge-in: server detected user started speaking while model was talking
+    if (serverContent.interrupted) {
+      this._stopPlayback();
+      this._setState('listening');
+      return;
+    }
+
+    // Audio/text from model
     const parts = serverContent.modelTurn?.parts || [];
 
     for (const part of parts) {
@@ -226,12 +244,12 @@ const GEMINI_VOICE = {
 
       // Audio part — queue for playback
       if (part.inlineData && part.inlineData.mimeType?.startsWith('audio/')) {
-        this._queueAudio(part.inlineData.data, part.inlineData.mimeType);
+        this._queueAudio(part.inlineData.data);
         this._setState('speaking');
       }
     }
 
-    // If turn complete, resume listening
+    // Turn complete — flush remaining audio then resume listening
     if (serverContent.turnComplete) {
       this._playQueuedAudio().then(() => {
         if (this.isActive) this._setState('listening');
@@ -239,9 +257,18 @@ const GEMINI_VOICE = {
     }
   },
 
-  // ── Audio playback ────────────────────────────────────────────────────
-  _queueAudio(base64Data, mimeType) {
-    this.playQueue.push({ data: base64Data, mimeType });
+  // ── Audio playback (single reusable context at 24kHz) ─────────────────
+  _stopPlayback() {
+    if (this._currentSource) {
+      try { this._currentSource.stop(); } catch {}
+      this._currentSource = null;
+    }
+    this.playQueue = [];
+    this.isPlaying = false;
+  },
+
+  _queueAudio(base64Data) {
+    this.playQueue.push(base64Data);
     if (!this.isPlaying) {
       this._playQueuedAudio();
     }
@@ -251,64 +278,65 @@ const GEMINI_VOICE = {
     if (this.isPlaying || this.playQueue.length === 0) return;
     this.isPlaying = true;
 
-    while (this.playQueue.length > 0) {
-      const { data, mimeType } = this.playQueue.shift();
-      await this._playAudioChunk(data, mimeType);
+    while (this.playQueue.length > 0 && this.isActive) {
+      const data = this.playQueue.shift();
+      await this._playPCMChunk(data);
     }
 
     this.isPlaying = false;
   },
 
-  async _playAudioChunk(base64Data, mimeType) {
+  async _playPCMChunk(base64Data) {
     return new Promise((resolve) => {
       try {
-        const playCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!this.playbackCtx || this.playbackCtx.state === 'closed') {
+          resolve();
+          return;
+        }
 
-        // Decode base64 to ArrayBuffer
+        // Resume if suspended (mobile browsers suspend contexts)
+        if (this.playbackCtx.state === 'suspended') {
+          this.playbackCtx.resume();
+        }
+
+        // Decode base64 → Int16 PCM → Float32
         const binary = atob(base64Data);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {
           bytes[i] = binary.charCodeAt(i);
         }
 
-        // If PCM, manually create audio buffer
-        if (mimeType.includes('pcm')) {
-          const sampleRate = 24000; // Gemini typically outputs 24kHz
-          const int16 = new Int16Array(bytes.buffer);
-          const audioBuffer = playCtx.createBuffer(1, int16.length, sampleRate);
-          const channelData = audioBuffer.getChannelData(0);
-          for (let i = 0; i < int16.length; i++) {
-            channelData[i] = int16[i] / 0x7FFF;
-          }
-
-          const source = playCtx.createBufferSource();
-          source.buffer = audioBuffer;
-          source.connect(playCtx.destination);
-          source.onended = () => {
-            playCtx.close().catch(() => {});
-            resolve();
-          };
-          source.start();
-        } else {
-          // Try decoding as encoded audio format
-          playCtx.decodeAudioData(bytes.buffer, (audioBuffer) => {
-            const source = playCtx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(playCtx.destination);
-            source.onended = () => {
-              playCtx.close().catch(() => {});
-              resolve();
-            };
-            source.start();
-          }, () => {
-            playCtx.close().catch(() => {});
-            resolve();
-          });
+        const int16 = new Int16Array(bytes.buffer);
+        const audioBuffer = this.playbackCtx.createBuffer(1, int16.length, 24000);
+        const channelData = audioBuffer.getChannelData(0);
+        for (let i = 0; i < int16.length; i++) {
+          channelData[i] = int16[i] / 0x7FFF;
         }
+
+        const source = this.playbackCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(this.playbackCtx.destination);
+        this._currentSource = source;
+
+        source.onended = () => {
+          this._currentSource = null;
+          resolve();
+        };
+        source.start();
       } catch {
         resolve();
       }
     });
+  },
+
+  // ── Utility: base64 encode without stack overflow ─────────────────────
+  _bytesToBase64(bytes) {
+    const CHUNK = 8192;
+    let str = '';
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      str += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(str);
   },
 
   // ── State management ──────────────────────────────────────────────────
