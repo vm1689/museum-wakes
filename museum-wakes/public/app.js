@@ -60,38 +60,18 @@ const APP = {
     if (content) content.style.display = 'none';
     wrap.classList.remove('hidden');
 
-    let started = false;
-    const playVideo = () => {
-      if (started) return;
-      started = true;
-      video.currentTime = 0;
-      video.play().catch(() => {
-        this.showAgeSelect();
-      });
-      video.onended = () => this._onIntroVideoEnd();
-    };
+    video.onended = () => this._onIntroVideoEnd();
+    video.onerror = () => this.showAgeSelect();
+    video.currentTime = 0;
 
-    // Force the video to start loading
-    video.load();
-
-    // Try to play as soon as possible
-    video.oncanplay = playVideo;
-    video.oncanplaythrough = playVideo;
-
-    // Also check immediately in case it's already loaded
-    if (video.readyState >= 2) {
-      playVideo();
-    }
-
-    // If video errors out, skip
-    video.onerror = () => {
-      if (!started) this.showAgeSelect();
-    };
-
-    // Long timeout for Render cold starts (15s)
-    setTimeout(() => {
-      if (!started) this.showAgeSelect();
-    }, 15000);
+    // Play unmuted directly in user gesture context (button click)
+    // If browser blocks unmuted autoplay, fall back to muted
+    video.play().catch(() => {
+      video.muted = true;
+      return video.play();
+    }).catch(() => {
+      this.showAgeSelect();
+    });
   },
 
   _onIntroVideoEnd() {
