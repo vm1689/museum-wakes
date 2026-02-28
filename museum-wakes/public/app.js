@@ -51,8 +51,7 @@ const APP = {
     const video = document.getElementById('prologue-video');
     const content = document.getElementById('prologue-content');
 
-    if (!wrap || !video) {
-      // No video element — go straight to age select
+    if (!wrap || !video || !video.querySelector('source')) {
       this.showAgeSelect();
       return;
     }
@@ -61,13 +60,28 @@ const APP = {
     if (content) content.style.display = 'none';
     wrap.classList.remove('hidden');
 
-    video.currentTime = 0;
-    video.play().catch(() => {
-      // Autoplay blocked — skip to age select
-      this.showAgeSelect();
-    });
+    const playVideo = () => {
+      video.currentTime = 0;
+      video.play().catch(() => {
+        // Autoplay blocked — skip to age select
+        this.showAgeSelect();
+      });
+      video.onended = () => this._onIntroVideoEnd();
+    };
 
-    video.onended = () => this._onIntroVideoEnd();
+    // If video has enough data, play immediately; otherwise wait
+    if (video.readyState >= 3) {
+      playVideo();
+    } else {
+      video.addEventListener('canplay', playVideo, { once: true });
+      // Timeout: if video doesn't load in 5s, skip it
+      setTimeout(() => {
+        if (video.readyState < 3) {
+          video.removeEventListener('canplay', playVideo);
+          this.showAgeSelect();
+        }
+      }, 5000);
+    }
   },
 
   _onIntroVideoEnd() {
