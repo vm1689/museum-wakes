@@ -1,0 +1,16 @@
+{
+  "name": "museum-wakes",
+  "version": "2.0.0",
+  "description": "Museum Wakes — An Egyptian Mystery at The Met",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "dotenv": "^17.3.1",
+    "express": "^4.21.0",
+    "ws": "^8.19.0"
+  }
+}

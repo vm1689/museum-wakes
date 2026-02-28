@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <title>The Museum Wakes</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ══ INTRO SCREEN ══ -->
+  <div id="screen-intro" class="screen active">
+    <div class="intro-eye">𓂀</div>
+    <h1 class="intro-title">The Museum Wakes</h1>
+    <p class="intro-subtitle">An Egyptian Mystery</p>
+    <p class="intro-hook">
+      The museum is closing.<br />
+      But something is wrong.<br /><br />
+      The seal on the Triadic Gods has been broken —<br />
+      Osiris's power is fading.<br />
+      Isis is searching.<br />
+      Horus is watching you.<br /><br />
+      <em>You have one night to restore the balance.</em>
+    </p>
+    <button class="btn-begin" onclick="APP.startQuest()">
+      Begin the Quest
+    </button>
+  </div>
+
+  <!-- ══ DIFFICULTY SCREEN ══ -->
+  <div id="screen-difficulty" class="screen">
+
+    <div class="diff-header">
+      <button class="back-btn" onclick="UI.show('screen-intro')">← Back</button>
+      <div class="diff-eye">𓂀</div>
+      <div class="diff-title">Choose Your Path</div>
+      <div class="diff-subtitle">Move through the gallery to solve the game</div>
+    </div>
+
+    <div class="diff-cards">
+
+      <button class="diff-card" onclick="APP.selectDifficulty('easy')">
+        <div class="diff-card-inner">
+          <div class="diff-level easy">EASY</div>
+          <div class="diff-time">30 minutes</div>
+          <div class="diff-desc">Scan and find the three artifacts.<br />Let the gods tell their story.</div>
+          <div class="diff-tasks">
+            <span class="diff-task-tag">Find artifacts</span>
+            <span class="diff-task-tag">Hear the gods</span>
+          </div>
+        </div>
+      </button>
+
+      <button class="diff-card recommended" onclick="APP.selectDifficulty('medium')">
+        <div class="diff-recommended-badge">RECOMMENDED</div>
+        <div class="diff-card-inner">
+          <div class="diff-level medium">MEDIUM</div>
+          <div class="diff-time">1 hour</div>
+          <div class="diff-desc">Find artifacts and decode hieroglyph clues. Two tasks per god.</div>
+          <div class="diff-tasks">
+            <span class="diff-task-tag">Find artifacts</span>
+            <span class="diff-task-tag">Decode hieroglyphs</span>
+            <span class="diff-task-tag">Learn history</span>
+          </div>
+        </div>
+      </button>
+
+      <button class="diff-card" onclick="APP.selectDifficulty('hard')">
+        <div class="diff-card-inner">
+          <div class="diff-level hard">HARD</div>
+          <div class="diff-time">2 hours</div>
+          <div class="diff-desc">Solve clues, decode symbols, and unlock hidden patterns across the wing.</div>
+          <div class="diff-tasks">
+            <span class="diff-task-tag">Everything</span>
+            <span class="diff-task-tag">Pattern unlock</span>
+          </div>
+        </div>
+      </button>
+
+    </div>
+
+  </div>
+
+  <!-- ══ GODS INTRO SCREEN ══ -->
+  <div id="screen-gods-intro" class="screen">
+
+    <div class="gi-header">
+      <div class="gi-title">𓂀 The Museum Wakes</div>
+      <div class="gi-subtitle">Your Mission</div>
+    </div>
+
+    <div class="gi-mission">
+      <p>The Egyptian Wing holds three ancient secrets. Each is bound to a god — Horus, Isis, and Osiris — whose power is fading.</p>
+      <p>Walk the galleries. Find each artifact. Scan it. The god will speak to you directly. Learn their hieroglyph symbol. Decode it to earn their trust and carry their clue forward.</p>
+      <p>All three must be found before the seal is broken forever.</p>
+    </div>
+
+    <div class="section-label">The Three Gods</div>
+
+    <div class="gi-gods-grid">
+
+      <div class="gi-god-card" style="--card-color: #C8A84B">
+        <div class="gi-god-img-wrap">
+          <img id="gi-img-horus" class="gi-god-img" style="display:none" alt="Horus" />
+          <div class="gi-god-fallback" id="gi-fallback-horus">🦅</div>
+        </div>
+        <div class="gi-god-info">
+          <div class="gi-god-name" style="color:#C8A84B">Horus</div>
+          <div class="gi-god-role">God of the Sky · Protector of Kings</div>
+          <div class="gi-god-gallery">Gallery 127 · Lila Acheson Wallace Galleries</div>
+          <div class="gi-god-desc">Warrior, protector, suspicious of mortals. He tests you first. Pass his trial and he sends you to Isis.</div>
+          <div class="gi-god-symbol">𓂀 &nbsp;The Wedjat — Eye of Horus</div>
+        </div>
+      </div>
+
+      <div class="gi-god-card" style="--card-color: #4B7EC8">
+        <div class="gi-god-img-wrap">
+          <img id="gi-img-isis" class="gi-god-img" style="display:none" alt="Isis" />
+          <div class="gi-god-fallback" id="gi-fallback-isis">✨</div>
+        </div>
+        <div class="gi-god-info">
+          <div class="gi-god-name" style="color:#4B7EC8">Isis</div>
+          <div class="gi-god-role">Goddess of Magic · Mother of Horus</div>
+          <div class="gi-god-gallery">Gallery 134 · Lila Acheson Wallace Galleries</div>
+          <div class="gi-god-desc">Wise, sorrowful, powerful. She holds the secret of the old language and will teach it to those who listen.</div>
+          <div class="gi-god-symbol">𓋹 &nbsp;The Ankh — Breath of Life</div>
+        </div>
+      </div>
+
+      <div class="gi-god-card" style="--card-color: #4BC87A">
+        <div class="gi-god-img-wrap">
+          <img id="gi-img-osiris" class="gi-god-img" style="display:none" alt="Osiris" />
+          <div class="gi-god-fallback" id="gi-fallback-osiris">☥</div>
+        </div>
+        <div class="gi-god-info">
+          <div class="gi-god-name" style="color:#4BC87A">Osiris</div>
+          <div class="gi-god-role">God of the Dead · Lord of the Underworld</div>
+          <div class="gi-god-gallery">Gallery 127 · Lila Acheson Wallace Galleries</div>
+          <div class="gi-god-desc">Weakened, fading, speaking in riddles. Reach him last. Carry everything the others have taught you.</div>
+          <div class="gi-god-symbol">𓊽 &nbsp;The Djed — Backbone of Osiris</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="gi-footer">
+      <button class="btn-begin" onclick="APP.enterMuseum()">Enter the Museum →</button>
+      <button class="back-btn" style="margin-top:16px" onclick="UI.show('screen-difficulty')">← Back</button>
+    </div>
+
+  </div>
+
+  <!-- ══ HOME SCREEN ══ -->
+  <div id="screen-home" class="screen">
+
+    <div class="home-header">
+      <button class="back-btn" onclick="UI.show('screen-gods-intro')">← Back</button>
+      <div class="home-title">𓂀 THE MUSEUM WAKES</div>
+      <div id="status-bar">Loading...</div>
+    </div>
+
+    <div class="section-label">The Triadic Gods</div>
+
+    <div class="god-list">
+
+      <button class="god-card locked" id="btn-horus" onclick="APP.approachGod('horus')">
+        <div class="god-icon">🦅</div>
+        <div class="god-info">
+          <div class="god-name">Horus</div>
+          <div class="god-role">God of the Sky · Gallery 127</div>
+          <div class="btn-status">Approach</div>
+        </div>
+      </button>
+
+      <button class="god-card locked" id="btn-isis" onclick="APP.approachGod('isis')">
+        <div class="god-icon">✨</div>
+        <div class="god-info">
+          <div class="god-name">Isis</div>
+          <div class="god-role">Goddess of Magic · Gallery 134</div>
+          <div class="btn-status">Locked</div>
+        </div>
+      </button>
+
+      <button class="god-card locked" id="btn-osiris" onclick="APP.approachGod('osiris')">
+        <div class="god-icon">☥</div>
+        <div class="god-info">
+          <div class="god-name">Osiris</div>
+          <div class="god-role">Lord of the Underworld · Gallery 127</div>
+          <div class="btn-status">Locked</div>
+        </div>
+      </button>
+
+    </div>
+
+    <!-- Clues collected -->
+    <div class="clues-panel">
+      <div class="clues-title">Clues Collected</div>
+      <ul id="clues-list">
+        <li class="empty">No clues collected yet.</li>
+      </ul>
+    </div>
+
+    <div style="padding:0 16px 16px">
+      <button class="reset-link" onclick="APP.reset()">Start over</button>
+    </div>
+
+  </div>
+
+  <!-- ══ ENCOUNTER SCREEN (5-phase flow per god) ══ -->
+  <div id="screen-encounter" class="screen">
+
+    <!-- Always-visible top bar: artifact + god + gallery -->
+    <div class="enc-top">
+      <img id="enc-artifact-img" class="enc-artifact-thumb" alt="" style="display:none" />
+      <div class="enc-top-info">
+        <div id="enc-god-name" class="enc-god-name"></div>
+        <div id="enc-god-title" class="enc-god-title"></div>
+        <div id="enc-gallery-tag" class="enc-gallery-tag"></div>
+      </div>
+    </div>
+
+    <!-- Task progress indicator -->
+    <div class="enc-task-progress" id="enc-task-progress">
+      <div class="task-pip" id="pip-1"></div>
+      <div class="task-pip-label">Task 1</div>
+      <div class="task-pip-line"></div>
+      <div class="task-pip" id="pip-2"></div>
+      <div class="task-pip-label">Task 2</div>
+    </div>
+
+    <!-- ── Phase 1: Welcome / Chat ── -->
+    <div id="enc-phase-welcome" class="enc-phase">
+
+      <!-- Chat message bubbles (Gemini mode) -->
+      <div id="enc-chat-messages" class="chat-messages" style="display:none"></div>
+      <div id="enc-chat-thinking" class="chat-thinking" style="display:none">
+        <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+      </div>
+
+      <!-- Static dialogue (fallback mode) -->
+      <div id="enc-chat-fallback" class="enc-dialogue-area">
+        <div id="enc-dialogue" class="enc-dialogue-text"></div>
+        <div id="enc-line-counter" class="enc-line-counter"></div>
+      </div>
+
+      <!-- Chat input (Gemini mode only) -->
+      <div id="enc-chat-input-area" class="chat-input-area" style="display:none">
+        <input id="enc-chat-input" class="chat-input" type="text"
+          placeholder="Speak to the god..." maxlength="200"
+          onkeydown="if(event.key==='Enter') APP.sendChat()" />
+        <button class="chat-send-btn" onclick="APP.sendChat()">↑</button>
+      </div>
+
+      <!-- Actions — always visible -->
+      <div class="enc-actions">
+        <!-- Fallback nav buttons -->
+        <button id="enc-next-btn" class="btn-ghost" style="display:none">Next →</button>
+        <button id="enc-continue-btn" class="btn-primary" style="display:none">Continue →</button>
+        <!-- Gemini: move on whenever ready -->
+        <button id="enc-to-task1-btn" class="btn-primary" style="display:none"
+          onclick="APP.showTask1Phase()">Continue to Tasks →</button>
+        <button class="btn-secondary" onclick="VOICE.stop(); APP.leaveEncounter()">
+          Leave Quietly
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Phase 2: Task 1 Assignment (find + scan artifact) ── -->
+    <div id="enc-phase-task1" class="enc-phase" style="display:none">
+      <div class="task-badge">TASK 1 · FIND THE ARTIFACT</div>
+      <div class="enc-task-speech" id="enc-task1-speech"></div>
+
+      <div class="task-artifact-section">
+        <div class="task-artifact-label">FIND THIS IN THE GALLERY</div>
+        <div class="task-artifact-wrap">
+          <img id="enc-task1-img" class="task-artifact-img" alt="Artifact" />
+          <div id="enc-task1-img-placeholder" class="task-artifact-placeholder">Loading image...</div>
+        </div>
+        <div id="enc-task1-artifact-name" class="task-artifact-name"></div>
+        <div id="enc-task1-gallery-hint" class="task-gallery-hint"></div>
+      </div>
+
+      <div class="enc-actions">
+        <button class="btn-primary" onclick="APP.startScan()">
+          📷 &nbsp;Scan the Artifact
+        </button>
+        <button class="btn-secondary" onclick="VOICE.stop(); APP.leaveEncounter()">
+          Leave Quietly
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Phase 2b: Scanning animation ── -->
+    <div id="enc-phase-scanning" class="enc-phase" style="display:none">
+      <div class="scan-viewfinder-wrap">
+        <div class="scan-viewfinder">
+          <img id="enc-scan-img" class="scan-artifact-img" alt="Artifact" />
+          <div class="vf-corner vf-tl"></div>
+          <div class="vf-corner vf-tr"></div>
+          <div class="vf-corner vf-bl"></div>
+          <div class="vf-corner vf-br"></div>
+          <div class="scan-line" id="enc-scan-line"></div>
+          <div class="scan-identified" id="enc-scan-identified" style="display:none">
+            <div class="scan-check">✓</div>
+            <div id="enc-scan-id-name" class="scan-id-name"></div>
+            <div id="enc-scan-id-artifact" class="scan-id-artifact"></div>
+          </div>
+        </div>
+        <div id="enc-scan-status" class="scan-status">Scanning...</div>
+      </div>
+      <div class="enc-actions">
+        <button id="enc-scan-done-btn" class="btn-primary" style="display:none"
+          onclick="APP.showTask1Complete()">Artifact Identified →</button>
+        <button class="btn-secondary" onclick="APP._showPhase('task1')">← Cancel</button>
+      </div>
+    </div>
+
+    <!-- ── Phase 3: Task 1 Complete (Congratulations + About artifact) ── -->
+    <div id="enc-phase-task1-complete" class="enc-phase" style="display:none">
+      <div class="congrats-header">
+        <div class="congrats-icon">✓</div>
+        <div class="congrats-title">Task 1 Complete</div>
+        <div class="congrats-subtitle" id="enc-t1c-god-name"></div>
+        <div class="congrats-message">Congratulations on completing the first task.</div>
+      </div>
+
+      <div class="about-panel">
+        <div class="about-panel-title" id="enc-t1c-about-title">About the Artifact</div>
+        <ul class="facts-list" id="enc-t1c-facts"></ul>
+      </div>
+
+      <div class="enc-actions">
+        <button id="enc-t1c-next-btn" class="btn-primary" onclick="APP.showTask2Phase()">
+          Next Task →
+        </button>
+        <button class="btn-secondary" onclick="VOICE.stop(); APP.leaveEncounter()">← Back to Map</button>
+      </div>
+    </div>
+
+    <!-- ── Phase 4: Task 2 (Hieroglyph puzzle) ── -->
+    <div id="enc-phase-task2" class="enc-phase" style="display:none">
+      <div class="task-badge task2">TASK 2 · DECODE THE SYMBOL</div>
+
+      <div class="enc-task-speech" id="enc-task2-speech"></div>
+
+      <div class="puzzle-glyph-area">
+        <div id="enc-glyph-symbol" class="puzzle-glyph enc-glyph-big"></div>
+        <div id="enc-glyph-name" class="puzzle-glyph-name"></div>
+      </div>
+
+      <div class="puzzle-question-area">
+        <div id="enc-puzzle-question" class="puzzle-question"></div>
+      </div>
+      <div id="enc-puzzle-options" class="puzzle-options"></div>
+
+      <div id="enc-puzzle-feedback" class="puzzle-feedback" style="display:none">
+        <div id="enc-puzzle-result" class="puzzle-result"></div>
+        <div id="enc-puzzle-explanation" class="puzzle-explanation"></div>
+        <button id="enc-puzzle-continue" class="btn-primary" style="display:none"
+          onclick="APP.showTask2Complete()">See What You Learned →</button>
+      </div>
+    </div>
+
+    <!-- ── Phase 5: Task 2 Complete (Congratulations + About symbol) ── -->
+    <div id="enc-phase-task2-complete" class="enc-phase" style="display:none">
+      <div class="congrats-header">
+        <div class="congrats-icon">𓂀</div>
+        <div class="congrats-title">Task 2 Complete</div>
+        <div class="congrats-subtitle" id="enc-t2c-god-name"></div>
+        <div class="congrats-message">Congratulations on completing the second task.</div>
+      </div>
+
+      <div class="about-panel">
+        <div class="about-panel-title" id="enc-t2c-about-title">About the Symbol</div>
+        <ul class="facts-list" id="enc-t2c-facts"></ul>
+      </div>
+
+      <div class="enc-actions">
+        <button id="enc-t2c-next-btn" class="btn-primary"
+          onclick="APP.afterEncounter()">Find the Next Clue →</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ ENDING SCREEN ══ -->
+  <div id="screen-ending" class="screen">
+    <div class="ending-glyph">𓋹</div>
+    <h2 class="ending-title">The Seal Holds</h2>
+    <p class="ending-text">
+      Osiris is restored.<br />
+      Not by magic — by memory.<br /><br />
+      You listened when you could have walked away.<br />
+      That is all we have ever asked.
+    </p>
+    <button class="btn-begin" onclick="APP.renderHome()">
+      Return to the Hall
+    </button>
+    <br />
+    <button class="reset-link" onclick="APP.reset()">
+      Start over
+    </button>
+  </div>
+
+  <!-- Scripts -->
+  <script src="dialogue.js"></script>
+  <script src="gemini.js"></script>
+  <script src="puzzles.js"></script>
+  <script src="story.js"></script>
+  <script src="voice.js"></script>
+  <script src="met-api.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>

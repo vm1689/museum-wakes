@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large data files (images served via Met API fallback)
+egypt-data/images/
+egypt-data/MetObjects_Egyptian.csv
+
+# Generated icons (regenerated on startup)
+museum-wakes/public/icons/
+
+# Video (too large for git)
+intro-video.mp4
+museum-wakes/public/intro-video.mp4
+
+# Archive
+archive/
