@@ -2,7 +2,7 @@
 
 **An Egyptian Mystery at The Metropolitan Museum of Art**
 
-A mobile web app that turns the Met's Egyptian Wing into a narrative mystery game. Visitors walk real galleries, scan real artifacts with their phone, and speak with ancient gods who respond in character using generative AI.
+Museum Wakes transforms the Met's Egyptian Wing into an immersive narrative mystery — powered entirely by generative AI. Visitors walk real galleries, scan real artifacts with their phone camera, and have live conversations with ancient gods and characters who respond in their own voice, in character, and in real time. Every playthrough is unique: the AI generates original dialogue, reacts to what you've discovered, remembers what you've said, and adapts its emotional arc across a 4-act story structure. No two visitors hear the same story.
 
 No install. No download. Open a link on your phone.
 
@@ -18,12 +18,25 @@ No install. No download. Open a link on your phone.
 
 ## How It Works
 
-1. Choose your age register (kid / teen / adult / family) — the gods adapt their voice
-2. Pick a narrative path — each tells a different story through the same galleries
-3. Walk the Egyptian Wing. The AI guide directs you to specific artifacts
-4. Scan artifacts with your phone camera or browse the catalog
-5. The guide reacts to what you find — the story advances, clues chain forward
-6. Reach the Hall of Two Truths for the final convergence
+1. **Choose your register** (kid / teen / adult / family) — the AI adapts its language, tone, and complexity
+2. **Pick a narrative path** — five different stories through the same galleries, each with its own AI guide
+3. **Walk the Egyptian Wing** — the guide directs you to specific artifacts with visual clue chains
+4. **Scan artifacts** with your phone camera — Gemini Vision identifies what you're looking at and compares it against 8,390 cataloged objects
+5. **The guide reacts** — every artifact triggers a unique, AI-generated story beat that references your earlier discoveries and advances the narrative
+6. **Talk back** — type or speak to the gods and they respond in character with full conversational memory
+7. **Reach the convergence** — the Hall of Two Truths, where the story resolves based on everything you've done
+
+## Why Every Experience Is Different
+
+Museum Wakes doesn't use pre-written scripts (except as fallback). The AI generates every line of dialogue live, using a layered prompt system:
+
+- **Character layer** — each guide has a distinct personality that evolves across 4 acts (e.g., Isis begins warm and urgent, breaks down in Act 3, finds peace in Act 4)
+- **Register layer** — the same god speaks differently to an 8-year-old vs. an adult scholar
+- **World layer** — the AI knows real Egyptology: dynasties, materials, tomb rituals, hieroglyph meanings
+- **Context layer** — the AI sees your full journey: which artifacts you've scanned, what clues you carry, what you've said in conversation, your current act and tension level
+- **Beat system** — the narrative engine classifies each moment (discovery, deepening, crisis, resolution) and shapes the AI's emotional register accordingly
+
+The result: two visitors on the same path in the same gallery will have completely different conversations with the same god.
 
 ## Five Paths
 
@@ -38,6 +51,30 @@ No install. No download. Open a link on your phone.
 Each path has a 4-act structure with rising tension, character arc, and crisis point.
 
 ---
+
+## Generative AI Architecture
+
+Museum Wakes uses Gemini across every layer of the experience:
+
+| Capability | Gemini Model | What It Does |
+|-----------|-------------|-------------|
+| **Narrative generation** | Gemini Flash | Live dialogue, story beats, guide responses — all generated in real time with layered character/register/world/context prompts |
+| **Artifact recognition** | Gemini Flash (Vision) | Visitor takes a photo → Gemini identifies the artifact, extracts title, material, period, gallery, accession number |
+| **Artifact matching** | Gemini Flash (Vision) | Compares visitor's photo against reference images to confirm they found the right target artifact |
+| **Real-time voice** | Gemini Live (WebSocket) | Streaming voice conversation — speak to the gods and hear them respond through your earbuds |
+| **Icon generation** | Gemini Pro (Image) | All game icons (path cards, age selection) are AI-generated from thematic prompts |
+
+### The Prompt System
+
+The AI doesn't receive a single flat prompt. Each request is built from 5 composable layers:
+
+1. **Character** — who is speaking (Isis, Thoth, Kha) + their emotional state for the current act
+2. **Register** — age-appropriate tone (a child hears "Set tricked Osiris into a box"; an adult hears the full mythological weight)
+3. **World** — real Egyptological knowledge: gallery descriptions, artifact metadata, hieroglyph meanings, dynasty context
+4. **Rules** — response format constraints: stay in character, reference real artifacts, never break the fourth wall
+5. **Context** — the player's full journey state: artifacts scanned, clues collected, conversation history, act number, tension level
+
+This means the AI's response to scanning the same artifact changes based on who you are, what path you're on, what act you're in, and what you've already discovered.
 
 ## Tech Stack
 
