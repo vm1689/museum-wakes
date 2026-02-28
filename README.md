@@ -8,6 +8,10 @@ Every playthrough is unique. The app draws from a catalog of **8,390 real Egypti
 
 No install. No download. Open a link on your phone.
 
+### Demo Video
+
+[![Museum Wakes Demo](https://img.youtube.com/vi/Reuz2qMhqu0/maxresdefault.jpg)](https://youtube.com/shorts/Reuz2qMhqu0)
+
 ---
 
 ## The Story
