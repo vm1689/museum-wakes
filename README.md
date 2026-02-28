@@ -2,7 +2,9 @@
 
 **An Egyptian Mystery at The Metropolitan Museum of Art**
 
-Museum Wakes transforms the Met's Egyptian Wing into an immersive narrative mystery — powered entirely by generative AI. Visitors walk real galleries, scan real artifacts with their phone camera, and have live conversations with ancient gods and characters who respond in their own voice, in character, and in real time. Every playthrough is unique: the AI generates original dialogue, reacts to what you've discovered, remembers what you've said, and adapts its emotional arc across a 4-act story structure. No two visitors hear the same story.
+Museum Wakes transforms the Met's Egyptian Wing into an immersive narrative mystery — powered entirely by generative AI. Visitors walk real galleries, scan real artifacts with their phone camera, and have live conversations with ancient gods and characters who respond in their own voice, in character, and in real time.
+
+Every playthrough is unique. The app draws from a catalog of **8,390 real Egyptian artifacts** scraped from the Met's Open API — each with full metadata, imagery, gallery locations, and historical context. On every new session, the game samples a different set of target artifacts from this pool and weaves them into the narrative. The AI generates original dialogue around whichever artifacts you encounter, reacts to what you've discovered, remembers what you've said, and adapts its emotional arc across a 4-act story structure. With 5 paths, 4 age registers, thousands of artifact combinations, and fully generative dialogue — no two visitors will ever hear the same story.
 
 No install. No download. Open a link on your phone.
 
@@ -36,7 +38,7 @@ Museum Wakes doesn't use pre-written scripts (except as fallback). The AI genera
 - **Context layer** — the AI sees your full journey: which artifacts you've scanned, what clues you carry, what you've said in conversation, your current act and tension level
 - **Beat system** — the narrative engine classifies each moment (discovery, deepening, crisis, resolution) and shapes the AI's emotional register accordingly
 
-The result: two visitors on the same path in the same gallery will have completely different conversations with the same god.
+Combined with the 8,390-artifact catalog — where each session samples different targets — the narrative possibility space is enormous. Two visitors on the same path in the same gallery will talk to the same god about completely different artifacts, hear different stories, and carry different clues forward.
 
 ## Five Paths
 
@@ -176,14 +178,16 @@ museum-wakes/
 
 ---
 
-## Artifact Data
+## The 8,390-Artifact Catalog
 
-The `egypt-data/` directory contains a full catalog scraped from the Met Museum Open API:
+The diversity of the experience comes from the data. The `egypt-data/` directory contains a full catalog scraped from the Met Museum Open API:
 
-- **8,390 objects** from the Egyptian Art department
+- **8,390 objects** from the Egyptian Art department — every publicly cataloged Egyptian artifact at the Met
 - Each object has: title, date, period, dynasty, medium, dimensions, gallery number, tags, image URL, description, provenance
 - Pre-built indexes for browsing by century, classification, culture, department, medium, and tags
 - Images are fetched on demand from Met servers and cached locally in `egypt-data/images/`
+
+On each new session, the game's `PATH_DATA` engine samples a fresh set of target artifacts from this pool based on the chosen path. The AI then generates narrative around these specific artifacts — their real history, materials, symbolism, and gallery context. This means even repeat visitors on the same path encounter different artifacts and hear entirely new stories built from real Egyptological data.
 
 ---
 
