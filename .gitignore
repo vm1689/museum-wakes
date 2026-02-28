@@ -15,9 +15,8 @@ egypt-data/MetObjects_Egyptian.csv
 
 # Generated icons are committed for Render deployment
 
-# Video (too large for git)
-intro-video.mp4
-museum-wakes/public/intro-video.mp4
+# Root-level video duplicate (public/ copy is committed)
+/intro-video.mp4
 
 # Archive
 archive/
